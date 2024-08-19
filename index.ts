@@ -21,13 +21,22 @@ while (true) {
 }
 const file = Bun.file('map.csv');
 const writer = file.writer();
-writer.write('title,url,longitude,latitude\n')
+writer.write('title,url,status,longitude,latitude\n')
 property.forEach(async (value) => {
     const ret = await fetch(value)
     const $ = cheerio.load(await ret.text())
     const mapSrc = $('h4:contains("物件所在地の地図")').next().children().attr('src')
     const longitude = mapSrc?.match(/!2d([\d|\.]+)/)![1]
     const latitude = mapSrc?.match(/!3d([\d|\.]+)/)![1]
-    writer.write(`${$('h1').text()},${value},${longitude},${latitude}\n`)    
+    const statusText = $('article .st-catgroup').text()
+    let status = '募集中'
+    if (/受付終了/.test(statusText)) {
+        status = '受付終了'
+    } else if (/一時停止/.test(statusText)) {
+        status = '一時停止'
+    } else if (/取引中止/.test(statusText)) {
+        status = '取引中止'
+    }
+    writer.write(`${$('h1').text()},${value},${status},${longitude},${latitude}\n`)    
 })
 writer.flush()
