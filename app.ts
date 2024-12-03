@@ -25,18 +25,43 @@ while (true) {
 	jsons.push(...((await ret.json()) as Response[]));
 	page++;
 }
+Bun.write("data.json", JSON.stringify(jsons, null, "\t"));
 const file = Bun.file("map.csv");
 const writer = file.writer();
-writer.write("title,url,status,longitude,latitude\n");
+writer.write("title,url,status,longitude,latitude,address\n");
 
 for (const json of jsons) {
 	const $ = cheerio.load(json.content.rendered);
-	const mapSrc = $('h4:contains("物件所在地の地図")')
-		.next()
-		.children()
+	let mapSrc = $('h4:contains("物件所在地の地図")')
+		.nextUntil(":not(p)")
+		.has("iframe")
+		.last()
+		.children("iframe")
 		.attr("src");
-	const longitude = mapSrc?.match(/!2d([\d|\.]+)/)?.[1];
-	const latitude = mapSrc?.match(/!3d([\d|\.]+)/)?.[1];
+	if (!mapSrc) {
+		mapSrc = $('h4:contains("物件所在地付近の地図")')
+			.nextUntil(":not(p)")
+			.has("iframe")
+			.last()
+			.children("iframe")
+			.attr("src");
+	}
+	if (json.guid.rendered === "https://zero.estate/?p=11917") {
+		console.log(mapSrc);
+		break;
+	}
+	const longitude = mapSrc?.match(/!2d([\d|\.]+)/)?.[1] ?? "";
+	const latitude = mapSrc?.match(/!3d([\d|\.]+)/)?.[1] ?? "";
+	let address = "";
+	if (!longitude || !latitude) {
+		address = $(".detail-spread>tbody>tr")
+			.filter(
+				(_k, v) => $(v).children("th:first-child").text().trim() === "所在地",
+			)
+			.children("th:last-child")
+			.text()
+			.split("\n")[0];
+	}
 	let status = "募集中";
 	if (json.categories.includes(32)) {
 		status = "受付終了";
@@ -46,6 +71,6 @@ for (const json of jsons) {
 		status = "取引中止";
 	}
 	writer.write(
-		`${json.title.rendered},${json.guid.rendered},${status},${longitude},${latitude}\n`,
+		`"${json.title.rendered}",${json.guid.rendered},${status},${longitude},${latitude},${address}\n`,
 	);
 }
