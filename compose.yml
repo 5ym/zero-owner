@@ -1,0 +1,6 @@
+services:
+  zero:
+    image: oven/bun
+    volumes:
+      - .:/home/bun/app
+    tty: true
