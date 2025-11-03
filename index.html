@@ -90,6 +90,12 @@
           });
           
           marker.addListener('click', () => {
+            const statusColors = {
+              '募集中': '#4CAF50',   // 緑
+              '受付終了': '#F44336', // 赤
+              '一時停止': '#FFC107', // 黄
+              '取引中止': '#2196F3'  // 青
+            };
             const statusColor = statusColors[p.status] || '#9C27B0';
             const html = `
       <div style="font-family: sans-serif; max-width:300px;">
