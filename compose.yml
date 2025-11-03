@@ -4,3 +4,4 @@ services:
     volumes:
       - .:/home/bun/app
     tty: true
+    command: sh -c "bun i && bun app.ts"

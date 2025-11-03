@@ -10,7 +10,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Run docker compose
-        run: docker compose run --rm zero i && bun app.ts
+        run: docker compose up
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
