@@ -15,6 +15,10 @@
       border: 1px solid #ccc;
       line-height: 1.6;
     }
+    .legend label {
+      display: block;
+      margin: 4px 0;
+    }
     .legend img {
       vertical-align: middle;
       margin-right: 6px;
@@ -23,6 +27,7 @@
 </head>
 <body>
   <div id="map"></div>
+  <div id="legend" class="legend"></div>
   <script>
     async function init() {
       try {
@@ -64,13 +69,15 @@
         const bounds = new google.maps.LatLngBounds();
         const info = new google.maps.InfoWindow();
         
-        // ステータスごとの色マッピング
         const statusColors = {
           '募集中': 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
           '受付終了': 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
           '一時停止': 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
           '取引中止': 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
         };
+        
+        // ステータス別にマーカーを分類
+        const markerGroups = {}; // { status: [marker, marker, ...] }
         
         points.forEach(p => {
           const iconUrl = statusColors[p.status] || 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png';
@@ -83,52 +90,66 @@
           });
           
           marker.addListener('click', () => {
-            const statusColors = {
-              '募集中': '#4CAF50',   // 緑
-              '受付終了': '#F44336', // 赤
-              '一時停止': '#FFC107', // 黄
-              '取引中止': '#2196F3'  // 青
-            };
             const statusColor = statusColors[p.status] || '#9C27B0';
-            
             const html = `
-              <div style="font-family: sans-serif; max-width:300px;">
-                <h3 style="margin:0 0 8px; font-size:16px; color:#333;">
-                  ${escapeHtml(p.title)}
-                </h3>
-                <div style="margin-bottom:8px;">
-                  <a href="${p.url}" target="_blank"
-                    style="display:inline-block; padding:6px 12px; background:#1976D2; color:#fff; text-decoration:none; border-radius:4px; font-size:13px;">
-                    詳細ページを見る
-                  </a>
-                </div>
-                <div style="margin-bottom:6px;">
-                  <span style="display:inline-block; padding:2px 6px; border-radius:3px; background:${statusColor}; color:#fff; font-size:12px;">
-                    ${escapeHtml(p.status)}
-                  </span>
-                </div>
-                <div style="font-size:13px; color:#555;">
-                  ${p.address ? '住所: ' + escapeHtml(p.address) : ''}
-                </div>
-              </div>
-            `;
+      <div style="font-family: sans-serif; max-width:300px;">
+        <h3 style="margin:0 0 8px; font-size:16px; color:#333;">
+          ${escapeHtml(p.title)}
+        </h3>
+        <div style="margin-bottom:8px;">
+          <a href="${p.url}" target="_blank"
+             style="display:inline-block; padding:6px 12px; background:#1976D2; color:#fff; text-decoration:none; border-radius:4px; font-size:13px;">
+            詳細ページを見る
+          </a>
+        </div>
+        <div style="margin-bottom:6px;">
+          <span style="display:inline-block; padding:2px 6px; border-radius:3px; background:${statusColor}; color:#fff; font-size:12px;">
+            ${escapeHtml(p.status)}
+          </span>
+        </div>
+        <div style="font-size:13px; color:#555;">
+          ${p.address ? '住所: ' + escapeHtml(p.address) : ''}
+        </div>
+      </div>
+    `;
             info.setContent(html);
             info.open(map, marker);
-          });          
+          });
+          
+          if (!markerGroups[p.status]) markerGroups[p.status] = [];
+          markerGroups[p.status].push(marker);
+          
           bounds.extend(marker.getPosition());
         });
         
         if (points.length > 1) map.fitBounds(bounds);
         
-        // 凡例を作成
-        const legend = document.createElement('div');
-        legend.className = 'legend';
-        legend.innerHTML = '<strong>凡例</strong><br>';
-        for (const [status, icon] of Object.entries(statusColors)) {
-          legend.innerHTML += `<div><img src="${icon}"> ${status}</div>`;
-        }
-        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(legend);
+        // フィルターUIを生成
+        const legend = document.getElementById('legend');
+        legend.innerHTML = '<strong>ステータス表示切替</strong><br>';
         
+        Object.entries(statusColors).forEach(([status, icon]) => {
+          const id = 'filter-' + status;
+          legend.innerHTML += `
+    <label>
+      <input type="checkbox" id="${id}" checked>
+      <img src="${icon}"> ${status}
+    </label>
+  `;
+        });
+        
+        // チェックボックスのイベント処理
+        Object.keys(statusColors).forEach(status => {
+          const checkbox = document.getElementById('filter-' + status);
+          checkbox.addEventListener('change', () => {
+            const visible = checkbox.checked;
+            const group = markerGroups[status] || [];
+            group.forEach(marker => marker.setVisible(visible));
+          });
+        });
+        
+        // 地図に凡例を追加
+        map.controls[google.maps.ControlPosition.RIGHT_TOP].push(legend);        
       } catch (err) {
         console.error(err);
       }
