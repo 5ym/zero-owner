@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import { load } from "cheerio";
 
 const url =
 	"https://zero.estate/wp-json/wp/v2/posts?categories_exclude[]=46&categories_exclude[]=49&categories_exclude[]=26&categories_exclude[]=27&categories_exclude[]=28&per_page=100&page=";
@@ -31,7 +31,7 @@ const writer = file.writer();
 writer.write("title,url,status,longitude,latitude,address\n");
 
 for (const json of jsons) {
-	const $ = cheerio.load(json.content.rendered);
+	const $ = load(json.content.rendered);
 	let mapSrc = $('h4:contains("物件所在地の地図")')
 		.nextUntil(":not(p)")
 		.has("iframe")

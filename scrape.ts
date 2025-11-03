@@ -1,4 +1,4 @@
-import * as cheerio from "cheerio";
+import { load } from "cheerio";
 
 const url = "https://zero.estate/page/";
 
@@ -9,7 +9,7 @@ while (true) {
 	if (ret.status === 404) {
 		break;
 	}
-	const $ = cheerio.load(await ret.text());
+	const $ = load(await ret.text());
 	$("main aside h3 a").each((_, element) => {
 		const child = $(element);
 		const href = child.attr("href");
@@ -25,7 +25,7 @@ writer.write("title,url,status,longitude,latitude\n");
 
 for (const value of property) {
 	const ret = await fetch(value);
-	const $ = cheerio.load(await ret.text());
+	const $ = load(await ret.text());
 	const mapSrc = $('h4:contains("物件所在地の地図")')
 		.next()
 		.children()
