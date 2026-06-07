@@ -10,7 +10,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Run docker compose
-        run: docker compose up
+        run: docker compose up --abort-on-container-exit
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
