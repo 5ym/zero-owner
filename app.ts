@@ -57,7 +57,10 @@ async function loginAndGetCookie(email: string, password: string) {
 	});
 
 	const cookie = res.headers.get("set-cookie");
-	if (!cookie) throw new Error("ログイン失敗: Cookie が取得できません");
+	if (!cookie) {
+		console.log("レスポンスヘッダー:", res.headers);
+		throw new Error("ログイン失敗: Cookie が取得できません");
+	}
 
 	return cookie;
 }
