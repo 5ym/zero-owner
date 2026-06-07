@@ -6,10 +6,16 @@ on:
 jobs:
   run-and-push:
     runs-on: ubuntu-latest
+    env:
+      EMAIL: ${{ secrets.EMAIL }}
+      PASSWORD: ${{ secrets.PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Run docker compose
+        env:
+          EMAIL: ${{ secrets.EMAIL }}
+          PASSWORD: ${{ secrets.PASSWORD }}
         run: docker compose up --abort-on-container-exit
       - name: Commit and push changes
         run: |
