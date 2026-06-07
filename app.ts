@@ -1,4 +1,4 @@
-export type PropertyImage = {
+type PropertyImage = {
 	id: number;
 	propertyId: number;
 	imageUrl: string;
@@ -9,7 +9,7 @@ export type PropertyImage = {
 	seedBatchId: number | null;
 };
 
-export type Items = {
+type Items = {
 	id: number;
 	title: string;
 	status: string;
@@ -36,6 +36,7 @@ export type Items = {
 	isFavorite: boolean;
 	favoriteCount: number;
 };
+
 // -----------------------------
 // 1. ログインして Cookie を取得
 // -----------------------------
@@ -43,13 +44,24 @@ async function loginAndGetCookie(email: string, password: string) {
 	const res = await fetch("https://zero.estate/api/auth/sign-in/email", {
 		method: "POST",
 		headers: {
-			"Content-Type": "application/json",
-			Accept: "*/*",
-			"User-Agent":
-				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-			Origin: "https://zero.estate",
-			Referer: "https://zero.estate/login",
-		},
+			"accept": "*/*",
+			"accept-language": "ja,en-US;q=0.9,en;q=0.8",
+			"cache-control": "no-cache",
+			"content-type": "application/json",
+			"dnt": "1",
+			"origin": "https://zero.estate",
+			"pragma": "no-cache",
+			"priority": "u=1, i",
+			"referer": "https://zero.estate/login",
+			// ★ これが無いと絶対に弾かれる
+			"sec-ch-ua": "\"Microsoft Edge\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+			"sec-ch-ua-mobile": "?0",
+			"sec-ch-ua-platform": "\"Windows\"",
+			"sec-fetch-dest": "empty",
+			"sec-fetch-mode": "cors",
+			"sec-fetch-site": "same-origin",
+			"user-agent":
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0",		},
 		body: JSON.stringify({
 			email,
 			password,
@@ -59,7 +71,7 @@ async function loginAndGetCookie(email: string, password: string) {
 
 	const cookie = res.headers.get("set-cookie");
 	if (!cookie) {
-		console.log("レスポンスヘッダー:", res.headers);
+		console.log("レスポンス:", res);
 		throw new Error("ログイン失敗: Cookie が取得できません");
 	}
 
@@ -71,8 +83,8 @@ async function loginAndGetCookie(email: string, password: string) {
 // -----------------------------
 async function fetchAll() {
 	const cookie = await loginAndGetCookie(
-		process.env.EMAIL,
-		process.env.PASSWORD,
+		"16yuim@gmail.com",
+		"0516yuim",
 	);
 
 	let page = 1;
