@@ -71,8 +71,8 @@
         
         const statusColors = {
           '募集中': 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
-          '受付終了': 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-          '一時停止': 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
+          '成約済み': 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
+          '受付停止': 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
           '取引中止': 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
         };
         
@@ -92,8 +92,8 @@
           marker.addListener('click', () => {
             const statusColors = {
               '募集中': '#4CAF50',   // 緑
-              '受付終了': '#F44336', // 赤
-              '一時停止': '#FFC107', // 黄
+              '成約済み': '#F44336', // 赤
+              '受付停止': '#FFC107', // 黄
               '取引中止': '#2196F3'  // 青
             };
             const statusColor = statusColors[p.status] || '#9C27B0';
