@@ -32,7 +32,7 @@ bun app.ts csv  # 旧形式の map.csv が要るとき
 | 変数 | 意味 |
 | --- | --- |
 | `EMAIL` / `PASSWORD` | zero.estate のログイン情報（必須） |
-| `HTTPS_PROXY` | 必要ならプロキシ |
+| `HTTPS_PROXY` | ローカルで必要ならプロキシ。CI では設定しない（Runner から到達できず接続が失敗する） |
 
 ローカルでは `.env` に書けば Bun が読み込む（`.env` は Git 管理外）。
 CI ではリポジトリの **Settings → Secrets and variables → Actions** に同名で登録する。

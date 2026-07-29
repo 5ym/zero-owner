@@ -28,7 +28,6 @@ jobs:
         env:
           EMAIL: ${{ secrets.EMAIL }}
           PASSWORD: ${{ secrets.PASSWORD }}
-          HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
         run: bun app.ts
       - name: Commit and push changes
         run: |
