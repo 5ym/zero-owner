@@ -1,177 +1,120 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>みんなの0円地図</title>
-  <style>
-    #map { width: 100%; height: 100vh; margin: 0; padding: 0; }
-    body { margin: 0; }
-    .legend {
-      background: white;
-      padding: 10px;
-      margin: 10px;
-      font-size: 14px;
-      border: 1px solid #ccc;
-      line-height: 1.6;
-    }
-    .legend label {
-      display: block;
-      margin: 4px 0;
-    }
-    .legend img {
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <div id="legend" class="legend"></div>
-  <script>
-    async function init() {
-      try {
-        const res = await fetch('map.csv');
-        if (!res.ok) throw new Error('CSVを取得できませんでした');
-        const csvText = await res.text();
-        
-        const rows = csvText.trim().split(/\r?\n/).map(line => {
-          const m = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
-          return m ? m.map(s => s.replace(/^"|"$/g, '')) : [];
-        });
-        
-        const header = rows[0].map(h => h.toLowerCase());
-        const titleIdx = header.indexOf('title');
-        const urlIdx = header.indexOf('url');
-        const statusIdx = header.indexOf('status');
-        const lonIdx = header.indexOf('longitude');
-        const latIdx = header.indexOf('latitude');
-        const addrIdx = header.indexOf('address');
-        
-        const points = rows.slice(1).map(r => ({
-          title: r[titleIdx],
-          url: r[urlIdx],
-          status: r[statusIdx],
-          lng: parseFloat(r[lonIdx]),
-          lat: parseFloat(r[latIdx]),
-          address: r[addrIdx]
-        })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
-        
-        const center = points.length
-        ? { lat: points[0].lat, lng: points[0].lng }
-        : { lat: 35.6812, lng: 139.7671 };
-        
-        const map = new google.maps.Map(document.getElementById('map'), {
-          center,
-          zoom: 12
-        });
-        
-        const bounds = new google.maps.LatLngBounds();
-        const info = new google.maps.InfoWindow();
-        
-        const statusColors = {
-          '募集中': 'http://maps.google.com/mapfiles/ms/icons/green-dot.png',
-          '成約済み': 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-          '受付停止': 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png',
-          '取引中止': 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png'
-        };
-        
-        // ステータス別にマーカーを分類
-        const markerGroups = {}; // { status: [marker, marker, ...] }
-        
-        points.forEach(p => {
-          const iconUrl = statusColors[p.status] || 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png';
-          
-          const marker = new google.maps.Marker({
-            position: { lat: p.lat, lng: p.lng },
-            map,
-            title: p.title,
-            icon: { url: iconUrl }
-          });
-          
-          marker.addListener('click', () => {
-            const statusColors = {
-              '募集中': '#4CAF50',   // 緑
-              '成約済み': '#F44336', // 赤
-              '受付停止': '#FFC107', // 黄
-              '取引中止': '#2196F3'  // 青
-            };
-            const statusColor = statusColors[p.status] || '#9C27B0';
-            const html = `
-      <div style="font-family: sans-serif; max-width:300px;">
-        <h3 style="margin:0 0 8px; font-size:16px; color:#333;">
-          ${escapeHtml(p.title)}
-        </h3>
-        <div style="margin-bottom:8px;">
-          <a href="${p.url}" target="_blank"
-             style="display:inline-block; padding:6px 12px; background:#1976D2; color:#fff; text-decoration:none; border-radius:4px; font-size:13px;">
-            詳細ページを見る
-          </a>
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>みんなの0円物件マップ</title>
+    <meta
+      name="description"
+      content="zero.estate に掲載された0円物件を衛星写真の地図上に表示します。都道府県・種別・特記事項で絞り込めます。"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <button id="panel-toggle" class="panel-toggle" type="button" aria-controls="panel">
+      <span aria-hidden="true">☰</span> 絞り込み
+    </button>
+
+    <aside id="panel" class="panel" aria-label="絞り込みと一覧">
+      <header class="panel__header">
+        <div>
+          <h1 class="panel__title">みんなの0円物件マップ</h1>
+          <p class="panel__meta" id="meta">読み込み中…</p>
         </div>
-        <div style="margin-bottom:6px;">
-          <span style="display:inline-block; padding:2px 6px; border-radius:3px; background:${statusColor}; color:#fff; font-size:12px;">
-            ${escapeHtml(p.status)}
-          </span>
-        </div>
-        <div style="font-size:13px; color:#555;">
-          ${p.address ? '住所: ' + escapeHtml(p.address) : ''}
-        </div>
+        <button id="panel-close" class="panel__close" type="button" aria-label="パネルを閉じる">
+          ×
+        </button>
+      </header>
+
+      <div class="panel__body">
+        <section class="field">
+          <label class="field__label" for="search">物件名・住所で検索</label>
+          <input id="search" type="search" placeholder="例: 高山市 別荘" autocomplete="off" />
+        </section>
+
+        <section class="field">
+          <h2 class="field__label">
+            ステータス
+            <button type="button" class="link-btn" id="status-reset">すべて</button>
+          </h2>
+          <div class="chips" id="statuses"></div>
+        </section>
+
+        <section class="field">
+          <h2 class="field__label">
+            種別
+            <button type="button" class="link-btn" id="type-reset">すべて</button>
+          </h2>
+          <div class="chips" id="types"></div>
+        </section>
+
+        <section class="field field--row">
+          <label class="field__inline">
+            <span class="field__label">地方</span>
+            <select id="region"></select>
+          </label>
+          <label class="field__inline">
+            <span class="field__label">都道府県</span>
+            <select id="pref"></select>
+          </label>
+        </section>
+
+        <section class="field">
+          <h2 class="field__label">
+            特記事項
+            <button type="button" class="link-btn" id="note-reset">すべて</button>
+          </h2>
+          <div class="chips chips--scroll" id="notes"></div>
+        </section>
+
+        <section class="field field--row">
+          <label class="field__inline">
+            <span class="field__label">並び順</span>
+            <select id="sort">
+              <option value="new">新着順</option>
+              <option value="views">閲覧数が多い順</option>
+              <option value="favorites">お気に入りが多い順</option>
+            </select>
+          </label>
+          <label class="field__inline field__inline--check">
+            <span class="field__label">表示範囲</span>
+            <label class="check">
+              <input type="checkbox" id="in-view" />
+              <span>地図に写っている物件だけ一覧に出す</span>
+            </label>
+          </label>
+        </section>
+
+        <section class="field field--grow">
+          <h2 class="field__label">一覧 <span class="count" id="count"></span></h2>
+          <ol class="list" id="list"></ol>
+        </section>
       </div>
-    `;
-            info.setContent(html);
-            info.open(map, marker);
-          });
-          
-          if (!markerGroups[p.status]) markerGroups[p.status] = [];
-          markerGroups[p.status].push(marker);
-          
-          bounds.extend(marker.getPosition());
-        });
-        
-        if (points.length > 1) map.fitBounds(bounds);
-        
-        // フィルターUIを生成
-        const legend = document.getElementById('legend');
-        legend.innerHTML = '<strong>ステータス表示切替</strong><br>';
-        
-        Object.entries(statusColors).forEach(([status, icon]) => {
-          const id = 'filter-' + status;
-          legend.innerHTML += `
-    <label>
-      <input type="checkbox" id="${id}" checked>
-      <img src="${icon}"> ${status}
-    </label>
-  `;
-        });
-        
-        // チェックボックスのイベント処理
-        Object.keys(statusColors).forEach(status => {
-          const checkbox = document.getElementById('filter-' + status);
-          checkbox.addEventListener('change', () => {
-            const visible = checkbox.checked;
-            const group = markerGroups[status] || [];
-            group.forEach(marker => marker.setVisible(visible));
-          });
-        });
-        
-        // 地図に凡例を追加
-        map.controls[google.maps.ControlPosition.RIGHT_TOP].push(legend);        
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    
-    function escapeHtml(str) {
-      return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-    }
-    
-    window.initMap = init;
-  </script>
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBs9U-Jl4u1xMntMKyaQq2bTKuuz5fZ4ho&callback=initMap" async defer></script>
-</body>
+
+      <footer class="panel__footer">
+        物件データ:
+        <a href="https://zero.estate/" target="_blank" rel="noopener">zero.estate</a>
+        ／ 掲載内容は公式サイトで確認してください
+      </footer>
+    </aside>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script type="module" src="./assets/main.js"></script>
+  </body>
 </html>

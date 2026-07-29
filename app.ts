@@ -21,6 +21,7 @@ type Items = {
 	builtYear: string | null;
 	viewCount: number;
 	createdAt: string;
+	approvedAt: string | null;
 	publicStatus: string;
 	isSuspended: boolean;
 	specialNotes: string | null;
@@ -44,24 +45,26 @@ async function loginAndGetCookie(email: string, password: string) {
 	const res = await fetch("https://zero.estate/api/auth/sign-in/email", {
 		method: "POST",
 		headers: {
-			"accept": "*/*",
+			accept: "*/*",
 			"accept-language": "ja,en-US;q=0.9,en;q=0.8",
 			"cache-control": "no-cache",
 			"content-type": "application/json",
-			"dnt": "1",
-			"origin": "https://zero.estate",
-			"pragma": "no-cache",
-			"priority": "u=1, i",
-			"referer": "https://zero.estate/login",
+			dnt: "1",
+			origin: "https://zero.estate",
+			pragma: "no-cache",
+			priority: "u=1, i",
+			referer: "https://zero.estate/login",
 			// ★ これが無いと絶対に弾かれる
-			"sec-ch-ua": "\"Microsoft Edge\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+			"sec-ch-ua":
+				'"Microsoft Edge";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
 			"sec-ch-ua-mobile": "?0",
-			"sec-ch-ua-platform": "\"Windows\"",
+			"sec-ch-ua-platform": '"Windows"',
 			"sec-fetch-dest": "empty",
 			"sec-fetch-mode": "cors",
 			"sec-fetch-site": "same-origin",
 			"user-agent":
-				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0",		},
+				"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0",
+		},
 		body: JSON.stringify({
 			email,
 			password,
@@ -82,10 +85,14 @@ async function loginAndGetCookie(email: string, password: string) {
 // 2. API から全件取得して data.json に保存
 // -----------------------------
 async function fetchAll() {
-	const cookie = await loginAndGetCookie(
-		"16yuim@gmail.com",
-		"***REMOVED***",
-	);
+	// 認証情報は環境変数から。ローカルでは .env、CI では Actions の Secrets を使う
+	const email = Bun.env.EMAIL;
+	const password = Bun.env.PASSWORD;
+	if (!email || !password) {
+		throw new Error("環境変数 EMAIL / PASSWORD を設定してください");
+	}
+
+	const cookie = await loginAndGetCookie(email, password);
 
 	let page = 1;
 	const baseUrl = "https://zero.estate/api/trpc/property.list";
@@ -151,7 +158,118 @@ async function fetchAll() {
 }
 
 // -----------------------------
-// 3. data.json を読み込んで CSV を生成
+// 3. data.json を読み込んで地図用 JSON を生成
+// -----------------------------
+
+/** 画像はすべてこの R2 バケット配下なので、共通部分は JSON から省く */
+const IMAGE_BASE = "https://pub-a219a93f532e41ea8c7013e00d34c61b.r2.dev/";
+
+type MapProperty = {
+	id: number;
+	title: string;
+	status: string;
+	type: string;
+	prefecture: string;
+	city: string;
+	region: string;
+	address: string;
+	lat: number;
+	lng: number;
+	builtYear: string | null;
+	views: number;
+	favorites: number;
+	notes: string[];
+	publishedAt: string;
+	image: string | null;
+};
+
+/** specialNotes は JSON 文字列の配列として入っている */
+function parseNotes(raw: string | null): string[] {
+	if (!raw) return [];
+	try {
+		const parsed = JSON.parse(raw);
+		return Array.isArray(parsed)
+			? parsed.filter((n): n is string => typeof n === "string")
+			: [];
+	} catch {
+		return [];
+	}
+}
+
+/** null や空文字を Number() に渡すと 0 になってしまうので明示的に弾く */
+function toCoord(value: string | null | undefined): number {
+	if (value === null || value === undefined || value.trim() === "")
+		return Number.NaN;
+	return Number(value);
+}
+
+function pickImage(images: PropertyImage[] | undefined): string | null {
+	const usable = (images ?? [])
+		.filter((image) => !image.isDummy && image.imageUrl)
+		.sort((a, b) => a.sortOrder - b.sortOrder);
+
+	const url = usable[0]?.imageUrl;
+	if (!url) return null;
+	return url.startsWith(IMAGE_BASE) ? url.slice(IMAGE_BASE.length) : url;
+}
+
+async function generateJson() {
+	const file = Bun.file("data.json");
+	const items = JSON.parse(await file.text()) as Items[];
+
+	const properties: MapProperty[] = [];
+	let unmapped = 0;
+
+	for (const item of items) {
+		const lat = toCoord(item.latitude ?? item.approximateLatitude);
+		const lng = toCoord(item.longitude ?? item.approximateLongitude);
+
+		// 座標が無い物件は地図に置けないので件数だけ数えておく
+		if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+			unmapped++;
+			continue;
+		}
+
+		properties.push({
+			id: item.id,
+			title: item.title,
+			status: item.status,
+			type: item.propertyType,
+			prefecture: item.prefecture ?? "",
+			city: item.city ?? "",
+			region: item.region ?? "",
+			address: item.address?.replace(/\s*\n\s*/g, " ") ?? "",
+			lat,
+			lng,
+			builtYear: item.builtYear,
+			views: item.viewCount ?? 0,
+			favorites: item.favoriteCount ?? 0,
+			notes: parseNotes(item.specialNotes),
+			publishedAt: item.approvedAt ?? item.createdAt,
+			image: pickImage(item.images),
+		});
+	}
+
+	properties.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+
+	await Bun.write(
+		"map.json",
+		JSON.stringify({
+			generatedAt: new Date().toISOString(),
+			total: items.length,
+			unmapped,
+			imageBase: IMAGE_BASE,
+			properties,
+		}),
+	);
+
+	console.log(
+		`map.json 出力完了 (${properties.length} 件 / 座標なし ${unmapped} 件)`,
+	);
+}
+
+// -----------------------------
+// 4. data.json を読み込んで CSV を生成
 // -----------------------------
 async function generateCsv() {
 	const file = Bun.file("data.json");
@@ -179,23 +297,26 @@ async function generateCsv() {
 }
 
 // -----------------------------
-// 4. bun run script.ts <command>
+// 5. bun run app.ts <command>
 // -----------------------------
 const command = process.argv[2];
 
 if (!command) {
-	// ★ オプション無し → 両方実行
+	// ★ オプション無し → 取得 + 地図用 JSON 生成
 	await fetchAll();
-	await generateCsv();
+	await generateJson();
 } else if (command === "fetch") {
 	await fetchAll();
+} else if (command === "json") {
+	await generateJson();
 } else if (command === "csv") {
 	await generateCsv();
 } else {
 	console.log("使い方:");
-	console.log("  bun run script.ts           # fetch + csv 両方実行");
+	console.log("  bun run app.ts           # fetch + json 両方実行");
+	console.log("  bun run app.ts fetch     # API から取得して data.json を作る");
 	console.log(
-		"  bun run script.ts fetch     # API から取得して data.json を作る",
+		"  bun run app.ts json      # data.json から地図用 map.json を作る",
 	);
-	console.log("  bun run script.ts csv       # data.json から CSV を作る");
+	console.log("  bun run app.ts csv       # data.json から CSV を作る");
 }
