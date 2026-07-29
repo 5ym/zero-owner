@@ -26,6 +26,12 @@ const escapeHtml = (value) =>
 
 const statusColor = (status) => STATUS_COLORS[status] ?? FALLBACK_COLOR;
 
+// 移行前の物件は CloudFront の絶対 URL、それ以外は R2 のパスだけを持つ
+const imageUrl = (property) =>
+	property.image.startsWith("http")
+		? property.image
+		: data.imageBase + property.image;
+
 const formatDate = (iso) => {
 	const d = new Date(iso);
 	return Number.isNaN(d.getTime())
@@ -36,24 +42,33 @@ const formatDate = (iso) => {
 /* ---------- 地図 ---------- */
 
 function createMap(container) {
+	// ドラッグ中はタイルを取りに行かず、止まってから読む（パンのカクつきを減らす）
+	const tile = (extra) => ({
+		maxZoom: 19,
+		updateWhenIdle: true,
+		updateWhenZooming: false,
+		keepBuffer: 1,
+		...extra,
+	});
+
 	// 空き家・空き地は現地の様子が知りたいので衛星写真を既定にする
 	const gsiPhoto = L.tileLayer(
 		"https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
-		{ maxZoom: 19, maxNativeZoom: 18, attribution: `衛星写真: ${GSI_ATTR}` },
+		tile({ maxNativeZoom: 18, attribution: `衛星写真: ${GSI_ATTR}` }),
 	);
 	const esriPhoto = L.tileLayer(
 		"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-		{ maxZoom: 19, maxNativeZoom: 19, attribution: `衛星写真: ${ESRI_ATTR}` },
+		tile({ maxNativeZoom: 19, attribution: `衛星写真: ${ESRI_ATTR}` }),
 	);
 	const gsiPale = L.tileLayer(
 		"https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
-		{ maxZoom: 19, maxNativeZoom: 18, attribution: `地図: ${GSI_ATTR}` },
+		tile({ maxNativeZoom: 18, attribution: `地図: ${GSI_ATTR}` }),
 	);
 
 	// 衛星写真だけでは地名が分からないのでラベルを重ねられるようにする
 	const labels = L.tileLayer(
 		"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-		{ maxZoom: 19, maxNativeZoom: 19, attribution: "地名: Esri", opacity: 0.9 },
+		tile({ maxNativeZoom: 19, attribution: "地名: Esri", opacity: 0.9 }),
 	);
 
 	const map = L.map(container, {
@@ -170,7 +185,7 @@ function filtered() {
 function popupHtml(property) {
 	const color = statusColor(property.status);
 	const photo = property.image
-		? `<img class="pop__photo" src="${escapeHtml(data.imageBase + property.image)}" alt="" loading="lazy">`
+		? `<img class="pop__photo" src="${escapeHtml(imageUrl(property))}" alt="" decoding="async">`
 		: "";
 	const notes = property.notes
 		.map((note) => `<span class="pop__tag">${escapeHtml(note)}</span>`)
@@ -238,9 +253,10 @@ function renderList(entries) {
 		return;
 	}
 
+	// 写真は原寸 (1枚 500KB 前後) なので、実際に見えた行だけ読み込む
 	const thumb = (property) =>
 		property.image
-			? `<img class="list__thumb" src="${escapeHtml(data.imageBase + property.image)}" alt="" loading="lazy">`
+			? `<img class="list__thumb" data-src="${escapeHtml(imageUrl(property))}" alt="" width="52" height="40" decoding="async">`
 			: `<span class="list__thumb"></span>`;
 
 	list.innerHTML =
@@ -264,6 +280,27 @@ function renderList(entries) {
 		(visible.length > LIST_LIMIT
 			? `<li class="list__more">ほか ${(visible.length - LIST_LIMIT).toLocaleString()} 件（絞り込むと表示されます）</li>`
 			: "");
+
+	observeThumbs(list);
+}
+
+/** 一覧に入ってきたサムネイルだけ src を入れる */
+const thumbObserver = new IntersectionObserver(
+	(entries, observer) => {
+		for (const entry of entries) {
+			if (!entry.isIntersecting) continue;
+			const img = entry.target;
+			img.src = img.dataset.src;
+			observer.unobserve(img);
+		}
+	},
+	{ root: $("panel-body"), rootMargin: "150px" },
+);
+
+function observeThumbs(list) {
+	for (const img of list.querySelectorAll("img.list__thumb[data-src]")) {
+		thumbObserver.observe(img);
+	}
 }
 
 function renderChipCounts() {
