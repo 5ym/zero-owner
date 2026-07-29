@@ -9,7 +9,7 @@ GitHub Actions で毎日収集し、GitHub Pages に配信する。
 app.ts            収集 (zero.estate API) と map.json の生成
 serve.ts          ローカル確認用の静的サーバ
 index.html        地図ページ
-assets/main.js    Leaflet の地図・絞り込み・一覧
+assets/main.js    MapLibre GL の地図・絞り込み・一覧
 assets/styles.css 見た目
 data.json         API のレスポンスをそのまま保存したもの（生成物・コミットしない）
 map.json          地図が読む軽量データ（生成物・コミットしない）
@@ -39,9 +39,14 @@ CI ではリポジトリの **Settings → Secrets and variables → Actions** �
 
 ## 地図
 
+描画は **MapLibre GL JS**（WebGL）。ラスタタイルも点も GPU で描くので、
+DOM でタイルを動かす方式（Leaflet）よりパンが軽い。WebGL2 が必要なので、
+使えない環境では地図の代わりにその旨を表示する。
+
 - 背景は **衛星写真**（既定: Esri World Imagery、切替で国土地理院シームレス空中写真・淡色地図）
 - 地名ラベルを重ねて表示（右下のレイヤコントロールで切替）
 - マーカーはステータス別の色。近い物件はクラスタにまとめ、ズームすると開く
+  （クラスタの件数表示にだけ [openmaptiles のフォント](https://fonts.openmaptiles.org/) を使う）
 - 物件名・住所の検索、ステータス / 種別 / 地方 / 都道府県 / 特記事項での絞り込み、
   新着・閲覧数・お気に入り順の並べ替え、「地図に写っている物件だけ一覧に出す」表示
 - 絞り込み条件は URL のハッシュに入るので、そのまま共有できる

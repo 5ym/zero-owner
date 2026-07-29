@@ -8,13 +8,8 @@
       name="description"
       content="zero.estate に掲載された0円物件を衛星写真の地図上に表示します。都道府県・種別・特記事項で絞り込めます。"
     />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.css" />
+    <link rel="modulepreload" href="https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.mjs" />
     <link rel="stylesheet" href="./assets/styles.css" />
   </head>
   <body>
@@ -109,12 +104,6 @@
 
     <div id="toast" class="toast" role="status" hidden></div>
 
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script type="module" src="./assets/main.js"></script>
   </body>
 </html>

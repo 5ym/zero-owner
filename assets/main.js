@@ -1,8 +1,19 @@
 /* zero.estate の0円物件を衛星写真の地図に載せる。データは map.json (app.ts が生成) */
 
+import {
+	AttributionControl,
+	LngLatBounds,
+	Map as MapLibreMap,
+	NavigationControl,
+	Popup,
+	ScaleControl,
+} from "https://unpkg.com/maplibre-gl@6.0.0/dist/maplibre-gl.mjs";
+
 const GSI_ATTR =
 	'<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
 const ESRI_ATTR = "Esri, Maxar, Earthstar Geographics";
+/* クラスタの件数表示に使うフォント。ラスタタイルには文字が焼き込まれているので、これだけ */
+const GLYPHS = "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf";
 
 const STATUS_COLORS = {
 	募集中: "#34d399",
@@ -12,6 +23,7 @@ const STATUS_COLORS = {
 	未公開: "#a78bfa",
 };
 const FALLBACK_COLOR = "#94a3b8";
+const ACCENT = "#34d399";
 const LIST_LIMIT = 120;
 
 const $ = (id) => document.getElementById(id);
@@ -41,93 +53,248 @@ const formatDate = (iso) => {
 
 /* ---------- 地図 ---------- */
 
-function createMap(container) {
-	// ドラッグ中はタイルを取りに行かず、止まってから読む（パンのカクつきを減らす）
-	const tile = (extra) => ({
-		maxZoom: 19,
-		updateWhenIdle: true,
-		updateWhenZooming: false,
-		keepBuffer: 1,
-		...extra,
-	});
+const BASES = [
+	{
+		id: "esri-photo",
+		label: "衛星写真 (Esri)",
+		tiles: [
+			"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+		],
+		maxzoom: 19,
+		attribution: `衛星写真: ${ESRI_ATTR}`,
+	},
+	{
+		id: "gsi-photo",
+		label: "衛星写真 (地理院)",
+		tiles: [
+			"https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
+		],
+		maxzoom: 18,
+		attribution: `衛星写真: ${GSI_ATTR}`,
+	},
+	{
+		id: "gsi-pale",
+		label: "淡色地図",
+		tiles: ["https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png"],
+		maxzoom: 18,
+		attribution: `地図: ${GSI_ATTR}`,
+	},
+];
 
-	// 空き家・空き地は現地の様子が知りたいので衛星写真を既定にする
-	const gsiPhoto = L.tileLayer(
-		"https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg",
-		tile({ maxNativeZoom: 18, attribution: `衛星写真: ${GSI_ATTR}` }),
-	);
-	const esriPhoto = L.tileLayer(
-		"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-		tile({ maxNativeZoom: 19, attribution: `衛星写真: ${ESRI_ATTR}` }),
-	);
-	const gsiPale = L.tileLayer(
-		"https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
-		tile({ maxNativeZoom: 18, attribution: `地図: ${GSI_ATTR}` }),
-	);
+const EMPTY = { type: "FeatureCollection", features: [] };
 
-	// 衛星写真だけでは地名が分からないのでラベルを重ねられるようにする
-	const labels = L.tileLayer(
-		"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-		tile({ maxNativeZoom: 19, attribution: "地名: Esri", opacity: 0.9 }),
-	);
+function buildStyle() {
+	const sources = {
+		// 衛星写真だけでは地名が分からないので、ラベルだけの層を重ねる
+		labels: {
+			type: "raster",
+			tiles: [
+				"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+			],
+			tileSize: 256,
+			maxzoom: 19,
+			attribution: "地名: Esri",
+		},
+		// クラスタリングは MapLibre 側 (supercluster) に任せる
+		properties: {
+			type: "geojson",
+			data: EMPTY,
+			cluster: true,
+			clusterMaxZoom: 15,
+			clusterRadius: 55,
+			attribution:
+				'物件: <a href="https://zero.estate/" target="_blank" rel="noopener">zero.estate</a>',
+		},
+	};
 
-	const map = L.map(container, {
-		center: [37.2, 138.5],
-		zoom: 5,
-		// 地理院の写真は日本国内しか無く全国表示だと余白が灰色になるので、既定は全球の Esri
-		layers: [esriPhoto, labels],
-		zoomControl: false,
-		preferCanvas: true,
-	});
+	for (const base of BASES) {
+		sources[base.id] = {
+			type: "raster",
+			tiles: base.tiles,
+			tileSize: 256,
+			maxzoom: base.maxzoom,
+			attribution: base.attribution,
+		};
+	}
 
-	L.control.zoom({ position: "bottomright" }).addTo(map);
-	L.control
-		.layers(
+	const statusMatch = ["match", ["get", "status"]];
+	for (const [status, color] of Object.entries(STATUS_COLORS)) {
+		statusMatch.push(status, color);
+	}
+	statusMatch.push(FALLBACK_COLOR);
+
+	return {
+		version: 8,
+		glyphs: GLYPHS,
+		sources,
+		layers: [
+			...BASES.map((base, i) => ({
+				id: base.id,
+				type: "raster",
+				source: base.id,
+				layout: { visibility: i === 0 ? "visible" : "none" },
+			})),
 			{
-				"衛星写真 (Esri)": esriPhoto,
-				"衛星写真 (地理院)": gsiPhoto,
-				淡色地図: gsiPale,
+				id: "labels",
+				type: "raster",
+				source: "labels",
+				paint: { "raster-opacity": 0.9 },
 			},
-			{ 地名ラベル: labels },
-			{ position: "bottomright", collapsed: true },
-		)
-		.addTo(map);
-	L.control.scale({ imperial: false, position: "bottomleft" }).addTo(map);
-
-	map.attributionControl.setPrefix(
-		'<a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>',
-	);
-	map.attributionControl.addAttribution(
-		'物件: <a href="https://zero.estate/" target="_blank" rel="noopener">zero.estate</a>',
-	);
-
-	return map;
+			{
+				id: "clusters",
+				type: "circle",
+				source: "properties",
+				filter: ["has", "point_count"],
+				paint: {
+					"circle-color": "rgba(17, 23, 28, 0.85)",
+					"circle-radius": [
+						"step",
+						["get", "point_count"],
+						17,
+						25,
+						20,
+						100,
+						24,
+					],
+					"circle-stroke-width": 2,
+					"circle-stroke-color": ACCENT,
+				},
+			},
+			{
+				id: "cluster-count",
+				type: "symbol",
+				source: "properties",
+				filter: ["has", "point_count"],
+				layout: {
+					"text-field": ["get", "point_count_abbreviated"],
+					"text-font": ["Noto Sans Bold"],
+					"text-size": 12,
+					"text-allow-overlap": true,
+				},
+				paint: { "text-color": "#eef2f5" },
+			},
+			{
+				id: "points",
+				type: "circle",
+				source: "properties",
+				filter: ["!", ["has", "point_count"]],
+				paint: {
+					"circle-color": statusMatch,
+					"circle-radius": [
+						"interpolate",
+						["linear"],
+						["zoom"],
+						5,
+						5,
+						12,
+						7,
+						16,
+						9,
+					],
+					"circle-stroke-width": 2,
+					"circle-stroke-color": "rgba(255, 255, 255, 0.92)",
+				},
+			},
+		],
+	};
 }
 
-const map = createMap($("map"));
-
-const clusters = L.markerClusterGroup({
-	chunkedLoading: true,
-	maxClusterRadius: 55,
-	showCoverageOnHover: false,
-	spiderfyOnMaxZoom: true,
-	disableClusteringAtZoom: 16,
-	iconCreateFunction(cluster) {
-		const children = cluster.getAllChildMarkers();
-		const open = children.filter(
-			(m) => m.options.zeroStatus === "募集中",
-		).length;
-		const count = children.length;
-		return L.divIcon({
-			className: "pin-wrap",
-			html: `<div class="cluster ${count >= 100 ? "cluster--lg" : ""}" style="--pin:${
-				open ? STATUS_COLORS.募集中 : FALLBACK_COLOR
-			}">${count}</div>`,
-			iconSize: count >= 100 ? [46, 46] : [38, 38],
-		});
-	},
+const map = new MapLibreMap({
+	container: "map",
+	style: buildStyle(),
+	center: [138.5, 37.2],
+	zoom: 4.5,
+	attributionControl: false,
+	// 傾き・回転は物件を見るのに要らないので切る
+	pitchWithRotate: false,
+	dragRotate: false,
+	touchPitch: false,
 });
-clusters.addTo(map);
+map.touchZoomRotate?.disableRotation();
+
+map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+// bottom-right は後から足したものが上に積まれるので、出典 → 背景切替 → ズームの順で足す
+map.addControl(
+	new AttributionControl({
+		compact: true,
+		customAttribution:
+			'<a href="https://maplibre.org/" target="_blank" rel="noopener">MapLibre</a>',
+	}),
+	"bottom-right",
+);
+
+/** 背景の切替（MapLibre には標準のレイヤ切替が無いので自前） */
+class LayerControl {
+	onAdd(mapInstance) {
+		this._map = mapInstance;
+		const root = document.createElement("div");
+		root.className = "maplibregl-ctrl maplibregl-ctrl-group layers";
+		root.innerHTML = `
+			<button type="button" class="layers__toggle" aria-expanded="false" aria-label="背景を切り替え">
+					<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+						<path d="M12 3 2 8l10 5 10-5-10-5Z" fill="currentColor" opacity=".9"/>
+						<path d="M2 12.5 12 17.5l10-5M2 16.5 12 21.5l10-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+					</svg>
+				</button>
+			<div class="layers__menu" hidden>
+				${BASES.map(
+					(base, i) => `
+					<label class="layers__item">
+						<input type="radio" name="base" value="${base.id}" ${i === 0 ? "checked" : ""}>
+						<span>${escapeHtml(base.label)}</span>
+					</label>`,
+				).join("")}
+				<hr class="layers__sep">
+				<label class="layers__item">
+					<input type="checkbox" id="toggle-labels" checked>
+					<span>地名ラベル</span>
+				</label>
+			</div>`;
+
+		const menu = root.querySelector(".layers__menu");
+		const toggle = root.querySelector(".layers__toggle");
+		toggle.addEventListener("click", () => {
+			menu.hidden = !menu.hidden;
+			toggle.setAttribute("aria-expanded", String(!menu.hidden));
+		});
+
+		root.addEventListener("change", (event) => {
+			const input = event.target;
+			if (input.name === "base") {
+				for (const base of BASES) {
+					this._map.setLayoutProperty(
+						base.id,
+						"visibility",
+						base.id === input.value ? "visible" : "none",
+					);
+				}
+			} else if (input.id === "toggle-labels") {
+				this._map.setLayoutProperty(
+					"labels",
+					"visibility",
+					input.checked ? "visible" : "none",
+				);
+			}
+		});
+
+		this._root = root;
+		return root;
+	}
+
+	onRemove() {
+		this._root.remove();
+	}
+}
+
+map.addControl(new LayerControl(), "bottom-right");
+map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+
+// WebGL2 が無い環境では地図が出せないので、白紙にせず理由を出す
+map.on("error", (event) => {
+	if (/WebGL/i.test(event.error?.message ?? "")) {
+		toast("この環境では地図を表示できません (WebGL2 が必要です)");
+	}
+});
 
 /* ---------- 状態 ---------- */
 
@@ -142,7 +309,9 @@ let state = {
 	sort: "new",
 	inView: false,
 };
-const markers = new Map();
+const byId = new Map();
+let popup = null;
+let shownId = null;
 
 /** skip に渡した条件だけ無視して判定する (チップの件数表示に使う) */
 function matches(property, skip) {
@@ -183,7 +352,6 @@ function filtered() {
 /* ---------- 描画 ---------- */
 
 function popupHtml(property) {
-	const color = statusColor(property.status);
 	const photo = property.image
 		? `<img class="pop__photo" src="${escapeHtml(imageUrl(property))}" alt="" decoding="async">`
 		: "";
@@ -204,7 +372,7 @@ function popupHtml(property) {
 		.join("");
 
 	return `
-		<div class="pop" style="--pin:${color}">
+		<div class="pop" style="--pin:${statusColor(property.status)}">
 			${photo}
 			<div class="pop__inner">
 				<h3 class="pop__name">${escapeHtml(property.title)}</h3>
@@ -222,28 +390,36 @@ function popupHtml(property) {
 		</div>`;
 }
 
-function createMarker(property) {
-	const color = statusColor(property.status);
-	const marker = L.marker([property.lat, property.lng], {
-		icon: L.divIcon({
-			className: "pin-wrap",
-			html: `<div class="pin" style="--pin:${color}"></div>`,
-			iconSize: [16, 16],
-			iconAnchor: [8, 8],
-			popupAnchor: [0, -8],
-		}),
-		title: property.title,
-		riseOnHover: true,
-		zeroStatus: property.status,
+function openPopup(property) {
+	popup?.remove();
+	shownId = property.id;
+	popup = new Popup({
+		maxWidth: "280px",
+		offset: 14,
+		className: "pop-wrap",
+	})
+		.setLngLat([property.lng, property.lat])
+		.setHTML(popupHtml(property))
+		.addTo(map);
+	popup.on("close", () => {
+		shownId = null;
 	});
-	marker.bindPopup(() => popupHtml(property), { maxWidth: 280, minWidth: 280 });
-	return marker;
+}
+
+function toFeature(property) {
+	return {
+		type: "Feature",
+		id: property.id,
+		geometry: { type: "Point", coordinates: [property.lng, property.lat] },
+		properties: { id: property.id, status: property.status },
+	};
 }
 
 function renderList(entries) {
 	const list = $("list");
-	const visible = state.inView
-		? entries.filter((p) => map.getBounds().contains([p.lat, p.lng]))
+	const bounds = state.inView ? map.getBounds() : null;
+	const visible = bounds
+		? entries.filter((p) => bounds.contains([p.lng, p.lat]))
 		: entries;
 
 	$("count").textContent = `${visible.length.toLocaleString()} 件`;
@@ -331,10 +507,14 @@ function renderChipCounts() {
 
 function render() {
 	const entries = filtered();
-
-	clusters.clearLayers();
-	clusters.addLayers(entries.map((p) => markers.get(p.id)));
-
+	map.getSource("properties")?.setData({
+		type: "FeatureCollection",
+		features: entries.map(toFeature),
+	});
+	// 絞り込みで消えた物件のポップアップは閉じる
+	if (shownId !== null && !entries.some((p) => p.id === shownId)) {
+		popup?.remove();
+	}
 	renderList(entries);
 	renderChipCounts();
 }
@@ -342,59 +522,77 @@ function render() {
 /** パネルに隠れる分を余白として扱い、実際に見えている範囲に収める */
 function viewPadding() {
 	const margin = 20;
-	const panel = $("panel");
 	if (document.body.classList.contains("panel-hidden")) {
-		return {
-			topLeft: L.point(margin, margin),
-			bottomRight: L.point(margin, margin),
-		};
+		return { top: margin, bottom: margin, left: margin, right: margin };
 	}
-	const rect = panel.getBoundingClientRect();
+	const rect = $("panel").getBoundingClientRect();
 	return isNarrow()
-		? {
-				topLeft: L.point(margin, margin),
-				bottomRight: L.point(margin, rect.height + margin),
-			}
+		? { top: margin, bottom: rect.height + margin, left: margin, right: margin }
 		: {
-				topLeft: L.point(rect.width + margin * 2, margin),
-				bottomRight: L.point(margin, margin),
+				top: margin,
+				bottom: margin,
+				left: rect.width + margin * 2,
+				right: margin,
 			};
 }
 
 function fitToSelection() {
 	const entries = filtered();
 	if (entries.length === 0) return;
-	const pad = viewPadding();
-	map.fitBounds(L.latLngBounds(entries.map((p) => [p.lat, p.lng])), {
-		paddingTopLeft: pad.topLeft,
-		paddingBottomRight: pad.bottomRight,
-		maxZoom: 14,
-	});
-}
-
-/** パネルで隠れていない領域の中央に来るように寄せる */
-function centerOn(latlng, zoom) {
-	const pad = viewPadding();
-	const point = map.project(latlng, zoom);
-	point.x -= (pad.topLeft.x - pad.bottomRight.x) / 2;
-	point.y -= (pad.topLeft.y - pad.bottomRight.y) / 2;
-	map.setView(map.unproject(point, zoom), zoom, { animate: true });
+	const bounds = new LngLatBounds();
+	for (const p of entries) bounds.extend([p.lng, p.lat]);
+	map.fitBounds(bounds, { padding: viewPadding(), maxZoom: 14, duration: 600 });
 }
 
 const isNarrow = () => window.matchMedia("(max-width: 640px)").matches;
 
 function setPanel(hidden) {
 	document.body.classList.toggle("panel-hidden", hidden);
-	map.invalidateSize();
+	map.resize();
 }
 
 function focusProperty(id) {
-	const marker = markers.get(id);
-	if (!marker) return;
+	const property = byId.get(id);
+	if (!property) return;
 	// 画面が狭いときはパネルがポップアップを覆ってしまうので閉じる
 	if (isNarrow()) setPanel(true);
-	centerOn(marker.getLatLng(), Math.max(map.getZoom(), 16));
-	clusters.zoomToShowLayer(marker, () => marker.openPopup());
+	const pad = viewPadding();
+	const visibleHeight = map.getCanvas().clientHeight - pad.top - pad.bottom;
+	map.easeTo({
+		center: [property.lng, property.lat],
+		zoom: Math.max(map.getZoom(), 16),
+		// パネルで隠れていない領域の中央、から少し下へ。ポップアップが上に開いて収まる
+		offset: [
+			(pad.left - pad.right) / 2,
+			(pad.top - pad.bottom) / 2 + visibleHeight * 0.2,
+		],
+		duration: 700,
+	});
+	openPopup(property);
+}
+
+/* ---------- 地図の操作 ---------- */
+
+map.on("click", "points", (event) => {
+	const property = byId.get(event.features[0].properties.id);
+	if (property) openPopup(property);
+});
+
+map.on("click", "clusters", async (event) => {
+	const cluster = event.features[0];
+	const zoom = await map
+		.getSource("properties")
+		.getClusterExpansionZoom(cluster.properties.cluster_id);
+	map.easeTo({ center: cluster.geometry.coordinates, zoom, duration: 500 });
+});
+
+for (const layer of ["points", "clusters"]) {
+	map.on("mouseenter", layer, () => {
+		map.getCanvas().style.cursor = "pointer";
+	});
+	map.on("mouseleave", layer, () => {
+		map.getCanvas().style.cursor = "";
+	});
 }
 
 /* ---------- URL への状態保存 ---------- */
@@ -579,19 +777,24 @@ function toast(message) {
 }
 
 async function boot() {
-	try {
-		const res = await fetch("./map.json", { cache: "no-cache" });
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		data = await res.json();
-	} catch (error) {
-		toast(`物件データを読み込めませんでした (${error.message})`);
-		return;
-	}
+	const [loaded] = await Promise.all([
+		fetch("./map.json", { cache: "no-cache" })
+			.then((res) => {
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				return res.json();
+			})
+			.catch((error) => {
+				toast(`物件データを読み込めませんでした (${error.message})`);
+				return null;
+			}),
+		map.loaded() ? Promise.resolve() : new Promise((r) => map.once("load", r)),
+	]);
+	if (!loaded) return;
+
+	data = loaded;
+	for (const property of data.properties) byId.set(property.id, property);
 
 	state = readState();
-	for (const property of data.properties)
-		markers.set(property.id, createMarker(property));
-
 	buildControls();
 	wireEvents();
 	render();
