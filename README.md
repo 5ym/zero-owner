@@ -11,7 +11,7 @@ serve.ts          ローカル確認用の静的サーバ
 index.html        地図ページ
 assets/main.js    Leaflet の地図・絞り込み・一覧
 assets/styles.css 見た目
-data.json         API のレスポンスをそのまま保存したもの（コミットする）
+data.json         API のレスポンスをそのまま保存したもの（生成物・コミットしない）
 map.json          地図が読む軽量データ（生成物・コミットしない）
 ```
 
@@ -51,10 +51,11 @@ CI ではリポジトリの **Settings → Secrets and variables → Actions** �
 
 1. リポジトリの **Settings → Pages → Source** を **GitHub Actions** にする
 2. `main` への push、または 1 日 1 回（9:00 JST）の cron で
-   [`.github/workflows/main.yml`](.github/workflows/main.yml) が収集・コミット・デプロイを行う
+   [`.github/workflows/main.yml`](.github/workflows/main.yml) が収集・デプロイを行う
 3. 公開先: `https://<ユーザー名>.github.io/zero-owner/`
 
-`map.json` はコミットせず、デプロイのたびに作り直して Pages の成果物に載せている。
+`data.json` / `map.json` はリポジトリにコミットしない（CI が push すると手元の作業と衝突するため）。
+デプロイのたびに作り直して Pages の成果物に載せている。
 
 ## 注意
 
