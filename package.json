@@ -12,10 +12,10 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.16",
-		"@types/bun": "^1.4.0",
-		"@types/node": "^26.0.0",
-		"maplibre-gl": "^6.6.0",
+		"@biomejs/biome": "^2.5.15",
+		"@types/bun": "^1.4.2",
+		"@types/node": "^26.6.4",
+		"maplibre-gl": "^6.11.2",
 		"typescript": "^7.0.0"
 	}
 }
